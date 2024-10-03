@@ -1,0 +1,42 @@
+UP = 0
+DOWN = 1
+LEFT = 2
+RIGHT = 3
+
+A = 4
+B = 5
+C = 6
+D = 7
+E = 8
+F = 9
+G = 10
+H = 11
+I = 12
+J = 13
+K = 14
+L = 15
+M = 16
+N = 17
+O = 18
+P = 19
+Q = 20
+R = 21
+S = 22
+T = 23
+U = 24
+V = 25
+W = 26
+X = 27
+Y = 28
+Z = 29
+
+LSHIFT = 30
+SPACE = 31
+ENTER = 32
+RSHIFT = 33
+TAB = 34
+
+ZERO = 35
+ONE = 36
+TWO = 37
+THREE = 38
