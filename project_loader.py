@@ -1,4 +1,4 @@
-from numpy import array, zeros, full, uint8, int32, float32
+from numpy import array, zeros, full, uint8, int32, float32, string_
 from settings import TEXTURE_MAX, SKYBOX_MAX, SPRITE_MAX, PATH_MAX, SECTOR_MAX, WALL_MAX, ENVIRONMENT_ANIMATION_MAX, ANIMATION_FRAMES_MAX
 from pygame import surfarray, image
 
@@ -91,6 +91,33 @@ def save_file(path: str, data: str) -> bool:
         print(f"ERROR 002: SAVING TO {path} WAS UNSUCCESSFUL")
         print(f"INFO: ERROR MESSAGE - {str(e)}")
         return False
+    
+def save_project(path:str, textures_n:int, texture_paths:array, sprites_n:int, sprites_paths:array, skyboxes_n:int, skyboxes_paths:array):
+    f = ""
+
+    f += f"{MODE_TEXTURES}\n{SUBMODE_TEXTURES}\n"
+
+    for texture_n in range(textures_n+1):
+        if not texture_n == 0:
+            f += "{ID=" + str(texture_n) + ";PATH=" + str(texture_paths[texture_n]) + "}\n"
+
+    f += f"{SUBMODE_TEXTURES_END}\n{SUBMODE_SPRITES}\n"
+
+    for sprite_n in range(sprites_n+1):
+        if not sprite_n == 0:
+            f += "{ID=" + str(sprite_n) + ";PATH=" + str(sprites_paths[sprite_n]) + "}\n"
+
+    f += f"{SUBMODE_SPRITES_END}\n{SUBMODE_SKYBOX}\n"
+
+    for skybox_n in range(skyboxes_n+1):
+        if not skybox_n == 0:
+            f += "{ID=" + str(skybox_n) + ";PATH=" + str(skyboxes_paths[skybox_n]) + "}\n"
+
+    f += f"{SUBMODE_SKYBOX_END}\n{MODE_TEXTURES_END}\n"
+
+    
+
+    save_file("test.fizz", f)
 
 def load_project(path:str, map_id:int=1)->tuple:
     file = load_file(path)
@@ -150,7 +177,7 @@ def load_project(path:str, map_id:int=1)->tuple:
     textures_width = full(TEXTURE_MAX, 0, dtype=int32)
     textures_height = full(TEXTURE_MAX, 0, dtype=int32)
     textures_x_coordinates = full(TEXTURE_MAX, 0, dtype=int32)
-    textures_path = full(TEXTURE_MAX, " " * PATH_MAX)
+    textures_path = [None]*TEXTURE_MAX
     textures_n = 0
 
     sprites_sheet_width = 0
@@ -159,7 +186,7 @@ def load_project(path:str, map_id:int=1)->tuple:
     sprites_width = full(SPRITE_MAX, 0, dtype=int32)
     sprites_height = full(SPRITE_MAX, 0, dtype=int32)
     sprites_x_coordinates = full(SPRITE_MAX, 0, dtype=int32)
-    sprites_path = full(SPRITE_MAX, " " * PATH_MAX)
+    sprites_path = [None]*SPRITE_MAX
     sprites_n = 0
 
     skyboxes_sheet_width = 0
@@ -168,7 +195,7 @@ def load_project(path:str, map_id:int=1)->tuple:
     skyboxes_width = full(SKYBOX_MAX, 0, dtype=int32)
     skyboxes_height = full(SKYBOX_MAX, 0, dtype=int32)
     skyboxes_x_coordinates = full(SKYBOX_MAX, 0, dtype=int32)
-    skyboxes_path = full(SKYBOX_MAX, " " * PATH_MAX)
+    skyboxes_path = [None]*SKYBOX_MAX
     skyboxes_n = 0
 
     environmental_animations_frames = full((ANIMATION_FRAMES_MAX, ENVIRONMENT_ANIMATION_MAX), 0, dtype=int32)
@@ -504,6 +531,3 @@ def save_texture(texture_data:array, save_path:str):
     texture_surface = surfarray.make_surface(texture_data)
 
     image.save(texture_surface, save_path)
-
-def save_project(path):
-    pass

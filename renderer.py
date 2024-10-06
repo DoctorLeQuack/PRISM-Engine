@@ -1,11 +1,11 @@
 from numba import njit, prange
 from numpy import full, int32, float32, array, zeros
 from math import cos, sin, atan2, floor, nan, fabs, isnan, tan, sqrt, atan, inf
-from settings import HFOV_2, ZNEAR, ZFAR, QUEUE_MAX, SECTOR_MAX, WALL_MAX, MASKED_MAX, PI, TAU, PI_2, PI_4, HFOV
+from settings import HFOV_2, ZNEAR, ZFAR, BILLBOARD_MAX, QUEUE_MAX, SECTOR_MAX, WALL_MAX, MASKED_MAX, PI, TAU, PI_2, PI_4, HFOV
 from keys import B, N, M
 from colors import DEBUG_FLOOR_COLOR, DEBUG_CEILING_COLOR, DEBUG_WALL_COLOR, DEBUG_WALLPORTALBOTTOM_COLOR, DEBUG_WALLPORTALTOP_COLOR, KEY_COLOR
 
-@njit
+@njit(parallel=True)
 def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewport_x:int, viewport_y:int, znl_x:float, znl_y:float, znr_x:float, znr_y:float, zfl_x:float, zfl_y:float, zfr_x:float, zfr_y:float, camera_sector:int, camera_pos_x:float, camera_pos_y:float, camera_pos_z:float, camera_angle:float, camera_fog_distance:float, camera_angle_sin:float, camera_angle_cos:float, sectors_id:array, sectors_light_factor:array, sectors_z_floor:array, sectors_z_ceil:array, sectors_ceil_texture_id:array, sectors_ceil_animation_id:array, sectors_floor_texture_id:array, sectors_floor_animation_id:array, sectors_slope_floor_z:array, sectors_slope_floor_wall_id:array, sectors_slope_ceil_z:array, sectors_slope_ceil_wall_id:array, sectors_slope_floor_friction:array, walls_id:array, walls_a_id:array, walls_b_id:array, walls_portal:array, walls_portal_wall_id:array, walls_sector_id:array, walls_texture_id:array, walls_texture_id_up:array, walls_texture_id_down:array, walls_animation_id:array, walls_texture_offset_x:array, walls_texture_offset_y:array, walls_texture_offset_up_x:array, walls_texture_offset_up_y:array, walls_texture_offset_down_x:array, walls_texture_offset_down_y:array, textures_sheet:array, textures_width:array, textures_height:array, environmental_animations_frames:array, environmental_animations_ms:array, ticks:int, textures_x_coordinate:array, engine_state:str, sectors_slope_floor_end_x:array, sectors_slope_floor_end_y:array, sectors_slope_ceil_end_x:array, sectors_slope_ceil_end_y:array, environmental_animations_frames_count:array, billboards_id:array, billboards_sector_id:array, billboards_sprite_id:array, billboards_position_x:array, billboards_position_y:array, billboards_position_z:array, sprites_sheet:array, sprites_x_coordinate:array, sprites_width:array, sprites_height:array, vertices_id:array, vertices_x:array, vertices_y:array, sectors_walls:array, keys:array, prev_keys:array, textures_n:int, skyboxes_sheet:array, skyboxes_width:array, skyboxes_height:array, skyboxes_x_coordinates:array, sectors_skybox_id:array, texture_select_mode:str, texture_slot_id:int, skyboxes_n:int)->tuple:
     
     viewport_width_2 = viewport_width // 2
@@ -13,7 +13,7 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
     viewport_ratio_height, viewport_ratio_width_i, viewport_projection_plane_distance = viewport_width/viewport_height, (viewport_height/viewport_width)-1, viewport_width_2 / tan(HFOV_2)
 
     y_lo = full(viewport_width+1, 0, dtype=int32)
-    y_hi = full(viewport_width+1, viewport_height, dtype=int32)
+    y_hi = full(viewport_width+1, viewport_height+1, dtype=int32)
 
     sector_draw = 0
 
@@ -173,7 +173,27 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
         sector_ceil_texture_width = textures_width[sector_texture_ceil_id]
         sector_ceil_texture_height = textures_height[sector_texture_ceil_id]
 
+        sorted_billboards_id = full(BILLBOARD_MAX, 0, dtype=int32)
+        sorted_billboards_n = 0
+
         for billboard_id in billboards_id:
+            if billboard_id != 0:
+                billboard_sector = billboards_sector_id[billboard_id]
+
+                if billboard_sector == entry_id:
+                    sorted_billboards_n += 1
+                    sorted_billboards_id[sorted_billboards_n] = billboard_id
+
+        for i in range(1, sorted_billboards_n):
+            for j in range(1, sorted_billboards_n - i + 1):
+                dist_j = distance(entry_camera_pos_x, entry_camera_pos_y, billboards_position_x[sorted_billboards_id[j]], billboards_position_y[sorted_billboards_id[j]])
+                dist_j1 = distance(entry_camera_pos_x, entry_camera_pos_y, billboards_position_x[sorted_billboards_id[j+1]], billboards_position_y[sorted_billboards_id[j+1]])
+
+                if dist_j < dist_j1:
+                    sorted_billboards_id[j], sorted_billboards_id[j+1] = sorted_billboards_id[j+1], sorted_billboards_id[j]
+
+        for sorted_billboard_n in range(sorted_billboards_n):
+            billboard_id = sorted_billboards_id[sorted_billboards_n - sorted_billboard_n]
             if billboard_id != 0:
                 billboard_sector = billboards_sector_id[billboard_id]
 
@@ -198,14 +218,14 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
                     masked_queue_texture_width[masked_queue_n] = sprite_width
 
                     billboard_position_x, billboard_position_y = billboards_position_x[billboard_id], billboards_position_y[billboard_id]
-                    billboard_size_x, billboard_size_y = sprite_width*0.01, sprite_height*0.01
+                    billboard_size_x, billboard_size_y = (sprite_width)*0.01, (sprite_height)*0.01
                     billboard_size_x_2 = billboard_size_x * 0.5
                     billboard_angle = get_angle(camera_pos_x, camera_pos_y, billboard_position_x, billboard_position_y)
                     masked_queue_length[masked_queue_n] = billboard_size_x
                     masked_queue_billboard_size_x[masked_queue_n], masked_queue_billboard_size_y[masked_queue_n] = billboard_size_x, billboard_size_y
                     masked_queue_billboard_a_x[masked_queue_n], masked_queue_billboard_a_y[masked_queue_n] = extend_v(billboard_position_x, billboard_position_y, -billboard_size_x_2, billboard_angle)
                     masked_queue_billboard_b_x[masked_queue_n], masked_queue_billboard_b_y[masked_queue_n] = extend_v(billboard_position_x, billboard_position_y, billboard_size_x_2, billboard_angle)
-                    masked_queue_billboard_z[masked_queue_n] = billboards_position_z[masked_queue_n]
+                    masked_queue_billboard_z[masked_queue_n] = billboards_position_z[billboard_id]
                     masked_queue_entry_x0[masked_queue_n] = entry_x0
                     masked_queue_entry_x1[masked_queue_n] = entry_x1
 
@@ -375,13 +395,13 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
                         yf0, yc0, txd, yfd, ycd, iz0, iz1, u0_z0, u1_z1, yyf0, yyfd, yyc0, yycd, nyyf0, nyyfd, nyyc0, nyycd = screen_space_transform(cp0_y, cp1_y, sector_z_floor_total, sector_z_ceil_total, camera_pos_z, tx1, tx0, wall_u0, wall_u1, wall_z_floor0, wall_z_floor1, wall_z_ceil0, wall_z_ceil1, portal_wall_z_floor0, portal_wall_z_floor1, portal_wall_z_ceil0, portal_wall_z_ceil1, viewport_height_2)
 
                         if engine_state != "DEBUG":
-                            if sector_slope_floor_z == 0:
+                            if sector_slope_floor_z == 0 and sector_texture_floor_id != 0:
                                     screen = render_unsloped_visplane(screen, True, entry_camera_pos_x, entry_camera_pos_y, camera_pos_z, entry_camera_angle, camera_fog_distance, sector_z_floor_total, txd, tx0, yyfd, yyf0, y_lo, y_hi, x0, x1, textures_sheet, sector_floor_texture_x_coordinate, sector_floor_texture_width, sector_floor_texture_height, sector_light_factor, viewport_height, viewport_height_2, viewport_width, viewport_ratio_width_i, viewport_projection_plane_distance, viewport_x, viewport_y)
 
-                            if sector_slope_ceil_z == 0:
+                            if sector_slope_ceil_z == 0 and sector_texture_ceil_id != 0:
                                     screen = render_unsloped_visplane(screen, False, entry_camera_pos_x, entry_camera_pos_y, camera_pos_z, entry_camera_angle, camera_fog_distance, sector_z_ceil_total, txd, tx0, yycd, yyc0, y_lo, y_hi, x0, x1, textures_sheet, sector_ceil_texture_x_coordinate, sector_ceil_texture_width, sector_ceil_texture_height, sector_light_factor, viewport_height, viewport_height_2, viewport_width, viewport_ratio_width_i, viewport_projection_plane_distance, viewport_x, viewport_y)
                 
-                        y_lo, y_hi, screen = process_wall_rendering(screen, textures_sheet, camera_fog_distance, wall_portal, wall_length, sector_height, wall_texture_id, sector_slope_floor_z, sector_slope_ceil_z, sector_z_floor, sector_z_ceil, sector_slope_floor_wall_a_x, sector_slope_floor_wall_a_y, sector_slope_floor_end_x, sector_slope_floor_end_y, sector_slope_ceil_wall_a_x, sector_slope_ceil_wall_a_y, sector_slope_ceil_end_x, sector_slope_ceil_end_y, x0, x1, y_hi, y_lo, engine_state, sector_z_floor_total, camera_pos_z, camera_angle, sector_light_factor, entry_camera_pos_x, entry_camera_pos_y, nyyfd, nyyf0, nyycd, nyyc0, txd, tx0, yfd, yf0, ycd, yc0, iz0, iz1, yyfd, yyf0, yycd, yyc0, sector_texture_floor_id, sector_texture_ceil_id, u0_z0, u1_z1, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_x_coordinate, wall_texture_up_width, wall_texture_up_height, wall_texture_up_offset_x, wall_texture_up_offset_y, wall_texture_up_x_coordinate, wall_texture_down_width, wall_texture_down_height, wall_texture_down_offset_x, wall_texture_down_offset_y, wall_texture_down_x_coordinate, skybox_texture_x_coordinate, skybox_texture_width, skybox_texture_height, entry_camera_angle_sin, entry_camera_angle_cos, sector_ceil_texture_x_coordinate, sector_ceil_texture_width, sector_ceil_texture_height, sector_floor_texture_x_coordinate, sector_floor_texture_width, sector_floor_texture_height, viewport_height, viewport_width, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, op0_x, op0_y, op1_x, op1_y, skyboxes_sheet, wall_texture_id_down, wall_texture_id_up)
+                        y_lo, y_hi, screen = process_wall_rendering(screen, textures_sheet, camera_fog_distance, wall_portal, wall_length, sector_height, wall_texture_id, sector_slope_floor_z, sector_slope_ceil_z, sector_z_floor, sector_z_ceil, sector_slope_floor_wall_a_x, sector_slope_floor_wall_a_y, sector_slope_floor_end_x, sector_slope_floor_end_y, sector_slope_ceil_wall_a_x, sector_slope_ceil_wall_a_y, sector_slope_ceil_end_x, sector_slope_ceil_end_y, x0, x1, y_hi, y_lo, engine_state, sector_z_floor_total, camera_pos_z, camera_angle, sector_light_factor, entry_camera_pos_x, entry_camera_pos_y, nyyfd, nyyf0, nyycd, nyyc0, txd, tx0, yfd, yf0, ycd, yc0, iz0, iz1, yyfd, yyf0, yycd, yyc0, sector_texture_floor_id, sector_texture_ceil_id, u0_z0, u1_z1, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_x_coordinate, wall_texture_up_width, wall_texture_up_height, wall_texture_up_offset_x, wall_texture_up_offset_y, wall_texture_up_x_coordinate, wall_texture_down_width, wall_texture_down_height, wall_texture_down_offset_x, wall_texture_down_offset_y, wall_texture_down_x_coordinate, skybox_texture_x_coordinate, skybox_texture_width, skybox_texture_height, entry_camera_angle_sin, entry_camera_angle_cos, sector_ceil_texture_x_coordinate, sector_ceil_texture_width, sector_ceil_texture_height, sector_floor_texture_x_coordinate, sector_floor_texture_width, sector_floor_texture_height, viewport_height, viewport_width, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, cp0_x, cp0_y, cp1_x, cp1_y, skyboxes_sheet, wall_texture_id_down, wall_texture_id_up)
                         
                         if (sector_draw >= QUEUE_MAX): print("WARNING 001: Sector-Queue ist überlastet.")
                         elif wall_portal != 0:
@@ -452,7 +472,6 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
         mask_texture_x_coordinate = masked_queue_texture_x_coordinate[mask_n]
         mask_texture_height = masked_queue_texture_height[mask_n]
         mask_texture_width = masked_queue_texture_width[mask_n]
-        sector_height = mask_sector_z_ceil_total - mask_sector_z_floor_total
 
         if mask_type == 1:
             mask_texture_offset_x = masked_queue_texture_offset_x[mask_n]
@@ -473,6 +492,8 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
             mask_yyf0 = masked_queue_yyf0[mask_n]
             mask_yycd = masked_queue_yycd[mask_n]
             mask_yyc0 = masked_queue_yyc0[mask_n]
+            
+            sector_height = mask_sector_z_ceil_total - mask_sector_z_floor_total
         
             screen = process_mask_rendering(screen, mask_x0, mask_x1, mask_length, mask_txd, mask_tx0, mask_u0_z0, mask_u1_z1, mask_iz0, mask_iz1, mask_yfd, mask_yf0, mask_ycd, mask_yc0, mask_yyfd, mask_yyf0, mask_yycd, mask_yyc0, mask_y_lo, mask_y_hi, mask_sector_light_factor, mask_sector_z_floor_total, mask_sector_z_ceil_total, engine_state, viewport_width, viewport_height, sector_height, camera_pos_z, entry_camera_pos_x, entry_camera_pos_y, camera_fog_distance, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, textures_sheet, mask_texture_width, mask_texture_height, mask_texture_offset_x, mask_texture_offset_y, mask_texture_x_coordinate)
         
@@ -529,12 +550,12 @@ def render_viewport(screen:array, viewport_width:int, viewport_height:int, viewp
                 if cp1_x != op1_x:
                     mask_u1 = extension_factor(op0_x, op0_y, op1_x, op1_y, cp1_x, cp1_y, 1)
 
-                mask_z_floor = mask_billboard_z
-                mask_z_ceil = mask_billboard_z + mask_billboard_size_y
+                mask_z_floor = mask_billboard_z - camera_pos_z
+                mask_z_ceil = mask_z_floor + mask_billboard_size_y
 
                 mask_yf0, mask_yc0, mask_txd, mask_yfd, mask_ycd, mask_iz0, mask_iz1, mask_u0_z0, mask_u1_z1, mask_yyf0, mask_yyfd, mask_yyc0, mask_yycd, mask_nyyf0, mask_nyyfd, mask_nyyc0, mask_nyycd = screen_space_transform(cp0_y, cp1_y, mask_z_floor, mask_z_ceil, camera_pos_z, mask_tx1, mask_tx0, mask_u0, mask_u1, mask_z_floor, mask_z_floor, mask_z_ceil, mask_z_ceil, 0, 0, 0, 0, viewport_height_2)
                 
-                screen = process_mask_rendering(screen, mask_x0, mask_x1, mask_length, mask_txd, mask_tx0, mask_u0_z0, mask_u1_z1, mask_iz0, mask_iz1, mask_yfd, mask_yf0, mask_ycd, mask_yc0, mask_yyfd, mask_yyf0, mask_yycd, mask_yyc0, mask_y_lo, mask_y_hi, mask_sector_light_factor, mask_z_floor, mask_z_ceil, engine_state, viewport_width, viewport_height, mask_billboard_size_y, camera_pos_z, mask_camera_position_x, mask_camera_position_y, camera_fog_distance, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, sprites_sheet, mask_texture_width, mask_texture_height, mask_texture_offset_x, mask_texture_offset_y, mask_texture_x_coordinate)
+                screen = process_mask_rendering(screen, mask_x0, mask_x1, mask_length, mask_txd, mask_tx0, mask_u0_z0, mask_u1_z1, mask_iz0, mask_iz1, mask_yfd, mask_yf0, mask_ycd, mask_yc0, mask_yyfd, mask_yyf0, mask_yycd, mask_yyc0, mask_y_lo, mask_y_hi, mask_sector_light_factor, mask_z_floor, mask_z_ceil, engine_state, viewport_width, viewport_height, mask_billboard_size_y, camera_pos_z, mask_camera_position_x, mask_camera_position_y, camera_fog_distance, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, sprites_sheet, mask_texture_width, mask_texture_height, mask_texture_offset_x, mask_texture_offset_y, mask_texture_x_coordinate, True)
 
     if faced_wall_id != 0:
         if texture_select_mode == "WALL":
@@ -694,7 +715,7 @@ def rectangle(screen:array, _v1_x:int, _v1_y:int, _v2_x:int, _v2_y:int, color:tu
     return screen
 
 @njit(fastmath=False)
-def process_mask_rendering(screen, x0, x1, mask_length, txd, tx0, u0_z0, u1_z1, iz0, iz1, yfd, yf0, ycd, yc0, yyfd, yyf0, yycd, yyc0, y_lo, y_hi, light_factor, z_floor_total, z_ceil_total, engine_state, viewport_width, viewport_height, sector_height, camera_pos_z, camera_pos_x, camera_pos_y, camera_fog_distance, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, textures_sheet, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_coordinate)->array:
+def process_mask_rendering(screen, x0, x1, mask_length, txd, tx0, u0_z0, u1_z1, iz0, iz1, yfd, yf0, ycd, yc0, yyfd, yyf0, yycd, yyc0, y_lo, y_hi, light_factor, z_floor_total, z_ceil_total, engine_state, viewport_width, viewport_height, sector_height, camera_pos_z, camera_pos_x, camera_pos_y, camera_fog_distance, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, textures_sheet, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_coordinate, isbillboard=False)->array:
     
     for x in range(x0, x1 + 1):
 
@@ -721,7 +742,7 @@ def process_mask_rendering(screen, x0, x1, mask_length, txd, tx0, u0_z0, u1_z1, 
             )
             
         else:
-            screen = texture_verline(screen, textures_sheet, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_coordinate, x, yyf, yyc, u, tyf, tyc, light_factor, z_floor_total, sector_height, camera_pos_z, tyyf, tyyc, camera_pos_x, camera_pos_y, camera_fog_distance, viewport_height, viewport_width, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y) 
+            screen = texture_verline(screen, textures_sheet, wall_texture_width, wall_texture_height, wall_texture_offset_x, wall_texture_offset_y, wall_texture_coordinate, x, yyf, yyc, u, tyf, tyc, light_factor, z_floor_total, sector_height, camera_pos_z, tyyf, tyyc, camera_pos_x, camera_pos_y, camera_fog_distance, viewport_height, viewport_width, viewport_ratio_width_i, viewport_ratio_height, viewport_x, viewport_y, isbillboard) 
 
     return screen
 
@@ -841,7 +862,7 @@ def render_sloped_visplane(screen: array, camera_pos_x: float, camera_pos_y: flo
         if isnan(i_x):
             continue
 
-        fog_factor = 1 - (distance3D(camera_pos_x, camera_pos_y, camera_pos_z, i_x, i_y, i_z) * camera_fog_distance)
+        fog_factor = round(1 - (distance3D(camera_pos_x, camera_pos_y, camera_pos_z, i_x, i_y, i_z) * camera_fog_distance),2)
 
         plane_tangent_x = -plane_normal_y
         plane_tangent_y = plane_normal_x
@@ -1018,42 +1039,33 @@ def debug_verline(screen:tuple, x:int, y0:int, y1:int, c:tuple, viewport_height:
 
 @njit(fastmath=True)
 def v_coordinate(yy:float, y_ceil:float, y_floor:float)->float:
-    return (1 - ((yy - y_ceil) / (y_floor - y_ceil))) * 0.5 if (y_floor - y_ceil) != 0 else 0
+    return (1 - ((yy - y_ceil) / (y_floor - y_ceil))) if (y_floor - y_ceil) != 0 else 0
 
 @njit(fastmath=True)
 def tiled_v_coordinate(sector_height:float, cpos_z:float, yy:float, y_ceil:float, y_floor:float)->float:
-    return sector_height * v_coordinate(yy, y_ceil, y_floor) - cpos_z
+    return sector_height * 0.5 * v_coordinate(yy, y_ceil, y_floor) - cpos_z
 
 @njit(fastmath=True)
-def texture_verline(screen:int, textures_sheet:array, texture_width:int, texture_height:int, texture_offset_x:float, texture_offset_y:float, texture_x_coordinate:int, x:int, y0:int, y1:int, u:float, y_floor:float, y_ceil:float, light_factor:float, z_floor:float, sector_height:float, camera_pos_z:float, tyyf:int, tyyc:int, camera_pos_x:float, camera_pos_y:float, camera_fog_distance:float, viewport_height:int, viewport_width:int, viewport_ratio_width_i:float, viewport_ratio_height:float, viewport_x:int, viewport_y:int):
+def texture_verline(screen:int, textures_sheet:array, texture_width:int, texture_height:int, texture_offset_x:float, texture_offset_y:float, texture_x_coordinate:int, x:int, y0:int, y1:int, u:float, y_floor:float, y_ceil:float, light_factor:float, z_floor:float, sector_height:float, camera_pos_z:float, tyyf:int, tyyc:int, camera_pos_x:float, camera_pos_y:float, camera_fog_distance:float, viewport_height:int, viewport_width:int, viewport_ratio_width_i:float, viewport_ratio_height:float, viewport_x:int, viewport_y:int, isbillboard=False):
     
     tx = floor((u * 200) + texture_offset_x)
-    tx %= texture_width
-
-    hyd = y_ceil - y_floor
-
-    for y in range(y0, y1+1):
-
-        if hyd != 0:
-            yp = relative_change(y, y_floor, hyd)
-        else:
-            yp = 0
-
-        i_z = z_floor + sector_height * yp
+    tx %= texture_width+1 if isbillboard else texture_width
+    
+    for y in range(y0, y1):
 
         yy = viewport_height - y
         v = tiled_v_coordinate(sector_height, camera_pos_z, yy, y_ceil, y_floor)
 
-        ty = floor((((v + z_floor) + ((v + z_floor) * viewport_ratio_width_i)) * (200 * (viewport_ratio_height))) + texture_offset_y)
-        ty %= texture_height
+        ty = floor((((v + z_floor) + ((v + z_floor) * viewport_ratio_width_i)) * (200 * (viewport_ratio_height))) - 1 + texture_offset_y)
+        ty %= texture_height+1 if isbillboard else texture_height
 
         if tx < texture_width and ty < texture_height:
             if y >= tyyf and y <= tyyc:
-                color = textures_sheet[texture_x_coordinate+tx][ty]
+                color = textures_sheet[texture_x_coordinate + tx][ty]
 
                 if check_keyColor(color):
                     pixel(screen, x, yy, color_mult(color, clamp(light_factor, 0, 1)), viewport_x, viewport_y, viewport_width, viewport_height)
-                
+
     return screen
 
 @njit(fastmath=True)
